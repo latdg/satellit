@@ -21,7 +21,20 @@
 #   igual amb núvols i de nit. Si en INUNDACIO_DIES_MAX dies no hi ha cap passada,
 #   s'avisa i es deixa córrer (l'aigua ja hauria baixat).
 #
+# MÒDULS 3 I 4: INFORMES MENSUALS AMB SENTINEL-2 — afegits 05.10.2026
+#   Cada mes (dia 5) es fa una imatge "neta" del mes anterior: per a cada píxel,
+#   la mitjana (mediana) de totes les passades sense núvols del mes.
+#   3. VEGETACIÓ: l'índex de verdor (NDVI) del mes comparat amb el mateix mes dels
+#      anys anteriors (des del 2019): on la vegetació està més seca o més verda
+#      que de costum (sequera, risc d'incendi, recuperació després de pluges).
+#   4. CANVIS AL TERRITORI: zones que fa un any tenien vegetació i ara no (tales,
+#      obres, pedreres, urbanitzacions, cremes, també collites), amb les imatges
+#      d'abans i d'ara de les més grans, per contrastar-les amb llicències, tauler
+#      d'anuncis i contractació.
+#
 # Ordres:
+#   python3 satellit.py mensual    (vegetació i canvis del mes anterior; DATA=aaaa-mm per a un altre mes)
+#   python3 satellit.py vegetacio  /  python3 satellit.py canvis
 #   python3 satellit.py inundacio  (dades a les variables DATA, NOM; LAT, LON i RADI opcionals)
 #   python3 satellit.py incendi    (dades a les variables LAT, LON, DATA, DATA_FI, NOM, RADI, PUNTS)
 #   python3 satellit.py pendents   (revisió diària dels incendis pendents)
@@ -534,6 +547,220 @@ def processar_inundacio(inc):
 
 
 # -----------------------------------------------------------------------------
+# INFORMES MENSUALS (SENTINEL-2): VEGETACIÓ I CANVIS AL TERRITORI
+# -----------------------------------------------------------------------------
+MENSUAL_RADI_KM = 12            # 24 x 24 km: els quatre municipis i bona part de les Gavarres
+MENSUAL_RESOLUCIO = 20          # metres per píxel
+ANY_INICI_HISTORIC = 2019       # primer any de referència per a la vegetació
+CANVI_NDVI = 0.30               # caiguda de verdor que es compta com a canvi
+CANVI_NDVI_ABANS = 0.40         # només zones que abans tenien vegetació clara
+CANVI_MIN_HA = 0.5              # taques més petites no s'avisen
+CANVIS_MAX = 8                  # zones que es llisten
+MESOS_CAT = ["", "gener", "febrer", "març", "abril", "maig", "juny", "juliol", "agost",
+             "setembre", "octubre", "novembre", "desembre"]
+
+EVAL_COMPOSICIO = """//VERSION=3
+function setup() {
+  return { input: [{ bands: ["B04", "B08", "B11", "SCL", "dataMask"] }],
+           output: { bands: 3, sampleType: "FLOAT32" }, mosaicking: "ORBIT" };
+}
+function mitjana(a) {
+  if (!a.length) return NaN;
+  a.sort(function (x, y) { return x - y; });
+  var m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+function evaluatePixel(mostres) {
+  var n = [], w = [];
+  for (var i = 0; i < mostres.length; i++) {
+    var x = mostres[i];
+    if (x.dataMask !== 1 || [0, 1, 3, 8, 9, 10, 11].indexOf(x.SCL) !== -1) continue;
+    n.push((x.B08 - x.B04) / (x.B08 + x.B04 + 1e-6));
+    w.push(x.B11);
+  }
+  return [mitjana(n), mitjana(w), n.length];
+}"""
+
+
+def mes_anterior():
+    avui = datetime.now(timezone.utc).date().replace(day=1)
+    d = avui - timedelta(days=1)
+    return d.year, d.month
+
+
+def limits_mes(any_, mes):
+    ini = date(any_, mes, 1)
+    fi = (date(any_ + (mes == 12), mes % 12 + 1, 1) - timedelta(days=1))
+    return ini.isoformat(), fi.isoformat()
+
+
+def zona_mensual():
+    x, y = a_utm(INUNDACIO_CENTRE[0], INUNDACIO_CENTRE[1])
+    m = MENSUAL_RADI_KM * 1000
+    return [x - m, y - m, x + m, y + m], int(round(2 * m / MENSUAL_RESOLUCIO))
+
+
+def demanar_rang(caixa_utm, costat, des, fins, evalscript, format_, ordre="leastCC"):
+    cos = {
+        "input": {
+            "bounds": {"bbox": caixa_utm, "properties": {"crs": CRS_UTM}},
+            "data": [{"type": "sentinel-2-l2a",
+                      "dataFilter": {"timeRange": {"from": des + "T00:00:00Z", "to": fins + "T23:59:59Z"},
+                                     "maxCloudCoverage": 80, "mosaickingOrder": ordre}}]
+        },
+        "output": {"width": costat, "height": costat,
+                   "responses": [{"identifier": "default", "format": {"type": format_}}]},
+        "evalscript": evalscript
+    }
+    r = requests.post(URL_PROCES, json=cos, headers=capcaleres(), timeout=300)
+    if r.status_code != 200:
+        raise RuntimeError("Copernicus (" + des + " - " + fins + "): HTTP %s %s" % (r.status_code, r.text[:200]))
+    return r.content
+
+
+def composicio(caixa_utm, costat, any_, mes):
+    """Imatge neta del mes: [verdor, SWIR, passades vàlides] per píxel (NaN si no n'hi ha cap)."""
+    import tifffile
+    des, fins = limits_mes(any_, mes)
+    a = tifffile.imread(io.BytesIO(demanar_rang(caixa_utm, costat, des, fins, EVAL_COMPOSICIO, "image/tiff")))
+    if a.ndim == 3 and a.shape[0] == 3 and a.shape[-1] != 3:
+        a = np.moveaxis(a, 0, -1)
+    return a[..., 0].astype("float32"), a[..., 1].astype("float32")
+
+
+def num_pct(x):
+    return ("%+.0f" % x).replace("-", "−") + " %"
+
+
+def mapa_anomalia(anom):
+    from PIL import Image
+    img = np.full(anom.shape + (3,), 235, dtype=np.uint8)
+    valid = ~np.isnan(anom)
+    a = np.clip(np.nan_to_num(anom) / 0.25, -1, 1)
+    sec = valid & (a < 0)
+    verd = valid & (a >= 0)
+    img[sec, 0] = 255
+    img[sec, 1] = (255 * (1 + a[sec])).astype(np.uint8)
+    img[sec, 2] = (255 * (1 + a[sec])).astype(np.uint8)
+    img[verd, 0] = (255 * (1 - a[verd])).astype(np.uint8)
+    img[verd, 1] = 255 - (80 * a[verd]).astype(np.uint8)
+    img[verd, 2] = (255 * (1 - a[verd])).astype(np.uint8)
+    pil = Image.fromarray(img, "RGB")
+    if pil.width > 1200:
+        pil = pil.resize((1200, 1200))
+    sortida = io.BytesIO()
+    pil.save(sortida, "JPEG", quality=88)
+    return sortida.getvalue()
+
+
+def informe_vegetacio(any_, mes):
+    caixa, costat = zona_mensual()
+    nom_mes = MESOS_CAT[mes] + " de " + str(any_)
+    log("Vegetació:", nom_mes)
+    ndvi, _ = composicio(caixa, costat, any_, mes)
+
+    historic = []
+    for a in range(ANY_INICI_HISTORIC, any_):
+        try:
+            historic.append(composicio(caixa, costat, a, mes)[0])
+        except Exception as e:
+            log("  ", a, e)
+    if not historic or np.all(np.isnan(ndvi)):
+        tg("sendMessage", {"chat_id": TG_CHAT, "text": "🌿 Estat de la vegetació — " + nom_mes +
+                           "\nNo hi ha prou imatges sense núvols per fer l'informe d'aquest mes."})
+        return
+    ref = np.nanmedian(np.stack(historic), axis=0)
+    anom = ndvi - ref
+    valid = ~np.isnan(anom)
+    bosc = valid & (ref >= 0.6)
+
+    def mitjana(m):
+        return float(np.nanmean(ndvi[m])), float(np.nanmean(ref[m]))
+
+    tot_ara, tot_ref = mitjana(valid)
+    linies = ["🌿 ESTAT DE LA VEGETACIÓ — " + nom_mes,
+              "Zona: 24 × 24 km al voltant de la Bisbal (els quatre municipis i bona part de les Gavarres)", "",
+              "Índex de verdor (NDVI) mitjà: " + ("%.2f" % tot_ara).replace(".", ",") +
+              " (" + num_pct((tot_ara - tot_ref) / tot_ref * 100) + " respecte a la mitjana de " + MESOS_CAT[mes] +
+              " de " + str(ANY_INICI_HISTORIC) + "-" + str(any_ - 1) + ")"]
+    if bosc.sum() > 100:
+        b_ara, b_ref = mitjana(bosc)
+        linies.append("🌲 Boscos (zones amb vegetació densa): " + num_pct((b_ara - b_ref) / b_ref * 100))
+    sec = float((valid & (anom <= -0.1)).sum() / max(1, valid.sum()) * 100)
+    verd = float((valid & (anom >= 0.1)).sum() / max(1, valid.sum()) * 100)
+    linies += ["🟥 Superfície clarament més seca que de costum: " + ("%.0f" % sec) + " %",
+               "🟩 Superfície clarament més verda que de costum: " + ("%.0f" % verd) + " %"]
+    if np.isnan(ndvi).mean() > 0.2:
+        linies.append("☁️ Un " + ("%.0f" % (np.isnan(ndvi).mean() * 100)) + " % de la zona no té cap imatge sense núvols aquest mes.")
+    linies += ["",
+               "ℹ️ Un índex més baix pot indicar sequera, però també incendis, tales o collites. "
+               "Mapa: vermell = més sec que de costum; verd = més verd. Estimació automàtica: cal contrastar-la.",
+               "Font: Sentinel-2 (Copernicus)"]
+    tg("sendPhoto", {"chat_id": TG_CHAT, "caption": "🌿 Vegetació — " + nom_mes + " (vermell: més sec · verd: més verd)"},
+       {"photo": ("vegetacio.jpg", mapa_anomalia(anom))})
+    tg("sendMessage", {"chat_id": TG_CHAT, "text": "\n".join(linies), "disable_web_page_preview": "true"})
+
+
+def informe_canvis(any_, mes):
+    from scipy import ndimage
+    caixa, costat = zona_mensual()
+    nom_mes = MESOS_CAT[mes] + " de " + str(any_)
+    nom_abans = MESOS_CAT[mes] + " de " + str(any_ - 1)
+    log("Canvis al territori:", nom_mes, "respecte a", nom_abans)
+    ndvi, swir = composicio(caixa, costat, any_, mes)
+    ndvi0, swir0 = composicio(caixa, costat, any_ - 1, mes)
+
+    valid = ~np.isnan(ndvi) & ~np.isnan(ndvi0)
+    perdua = valid & (ndvi0 >= CANVI_NDVI_ABANS) & ((ndvi0 - ndvi) >= CANVI_NDVI)
+    etiquetes, n = ndimage.label(perdua, structure=np.ones((3, 3)))
+    ha_px = MENSUAL_RESOLUCIO * MENSUAL_RESOLUCIO / 10000.0
+    taques = []
+    if n:
+        idx = np.arange(1, n + 1)
+        mides = ndimage.sum(perdua, etiquetes, idx)
+        centres = ndimage.center_of_mass(perdua, etiquetes, idx)
+        dswir = ndimage.mean(np.nan_to_num(swir - swir0), etiquetes, idx)
+        for i in np.argsort(mides)[::-1]:
+            ha = float(mides[i] * ha_px)
+            if ha < CANVI_MIN_HA or len(taques) >= CANVIS_MAX:
+                break
+            la, lo = lat_lon_de(centres[i][0], centres[i][1], caixa, MENSUAL_RESOLUCIO)
+            taques.append({"ha": ha, "lat": la, "lon": lo,
+                           "tipus": "sòl nu o construcció" if dswir[i] >= 0.05 else "pèrdua de vegetació"})
+
+    linies = ["🏗️ CANVIS AL TERRITORI — " + nom_mes + " respecte a " + nom_abans,
+              "Zona: 24 × 24 km al voltant de la Bisbal", ""]
+    if not taques:
+        linies.append("No s'hi aprecia cap canvi gran (de " + num(CANVI_MIN_HA) + " ha o més).")
+    else:
+        linies.append("Zones que fa un any tenien vegetació i ara no (de més gran a més petita):")
+        for k, t in enumerate(taques, 1):
+            linies.append("%d. %s ha · %s · https://www.google.com/maps?q=%.5f,%.5f" % (k, num(t["ha"]), t["tipus"], t["lat"], t["lon"]))
+        linies += ["",
+                   "ℹ️ Poden ser obres, tales, pedreres o urbanitzacions, però també collites, llaurades o cremes. "
+                   "Val la pena contrastar-ho amb llicències, el tauler d'anuncis i la contractació.",
+                   "Font: Sentinel-2 (Copernicus) · estimació automàtica"]
+
+        # Imatges d'abans i d'ara de les tres zones més grans (1 x 1 km).
+        media, fitxers = [], {}
+        da, fa = limits_mes(any_ - 1, mes)
+        db, fb = limits_mes(any_, mes)
+        for k, t in enumerate(taques[:3], 1):
+            x, y = a_utm(t["lat"], t["lon"])
+            c = [x - 500, y - 500, x + 500, y + 500]
+            try:
+                fitxers["a%d" % k] = ("a%d.png" % k, demanar_rang(c, 100, da, fa, EVAL_RGB, "image/png"))
+                fitxers["b%d" % k] = ("b%d.png" % k, demanar_rang(c, 100, db, fb, EVAL_RGB, "image/png"))
+                media.append({"type": "photo", "media": "attach://a%d" % k, "caption": "Zona %d · %s" % (k, nom_abans)})
+                media.append({"type": "photo", "media": "attach://b%d" % k, "caption": "Zona %d · %s" % (k, nom_mes)})
+            except Exception as e:
+                log("  imatge zona", k, e)
+        if media:
+            tg("sendMediaGroup", {"chat_id": TG_CHAT, "media": json.dumps(media)}, fitxers)
+    tg("sendMessage", {"chat_id": TG_CHAT, "text": "\n".join(linies), "disable_web_page_preview": "true"})
+
+
+# -----------------------------------------------------------------------------
 # PENDENTS
 # -----------------------------------------------------------------------------
 def llegir_pendents():
@@ -582,7 +809,18 @@ def revisar_pendents(nous=None):
 
 if __name__ == "__main__":
     ordre = sys.argv[1] if len(sys.argv) > 1 else "pendents"
-    if ordre == "inundacio":
+    if ordre in ("mensual", "vegetacio", "canvis"):
+        d = (os.environ.get("DATA") or "").strip()
+        any_, mes = (int(d[:4]), int(d[5:7])) if len(d) >= 7 else mes_anterior()
+        for nom_, funcio in (("vegetacio", informe_vegetacio), ("canvis", informe_canvis)):
+            if ordre in ("mensual", nom_):
+                try:
+                    funcio(any_, mes)
+                except Exception as e:
+                    log("❌", nom_, e)
+                    tg("sendMessage", {"chat_id": TG_CHAT, "text": "🛰️ No s'ha pogut fer l'informe de " +
+                                       ("vegetació" if nom_ == "vegetacio" else "canvis al territori") + ": " + str(e)[:300]})
+    elif ordre == "inundacio":
         revisar_pendents([{"tipus": "inundacio",
                            "data": (os.environ.get("DATA") or "").strip() or datetime.now(timezone.utc).date().isoformat(),
                            "nom": os.environ.get("NOM", "").strip(), "lat": os.environ.get("LAT", "").strip(),
