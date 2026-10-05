@@ -225,13 +225,20 @@ def calcular_crema(nbr_abans, valid_abans, nbr_despres, valid_despres, focus_px)
     crema = np.isin(etiquetes, list(bones)) if bones else np.zeros(dnbr.shape, bool)
 
     ha = RESOLUCIO * RESOLUCIO / 10000.0
+    # Perímetre (canvi 05.10.2026): la taca cremada amb les illes de dins
+    # omplertes, que és com es calculen les xifres oficials.
+    perimetre = ndimage.binary_fill_holes(crema) if crema.any() else crema
+    vora = bool(crema[0, :].any() or crema[-1, :].any() or crema[:, 0].any() or crema[:, -1].any())
     lleu = crema & (dnbr < LLINDAR_MODERADA)
     moderada = crema & (dnbr >= LLINDAR_MODERADA) & (dnbr < LLINDAR_ALTA)
     alta = crema & (dnbr >= LLINDAR_ALTA)
     return {
         "dnbr": dnbr, "lleu": lleu, "moderada": moderada, "alta": alta,
         "ha_lleu": float(lleu.sum() * ha), "ha_moderada": float(moderada.sum() * ha),
-        "ha_alta": float(alta.sum() * ha), "valid": float(valid.mean())
+        "ha_alta": float(alta.sum() * ha), "valid": float(valid.mean()),
+        "ha_perimetre": float(perimetre.sum() * ha),
+        "ha_sense_dades": float((perimetre & ~valid).sum() * ha),
+        "vora": vora
     }
 
 
@@ -310,10 +317,19 @@ def processar_incendi(inc):
         conclusio = ("No s'aprecia cap superfície cremada clara a la zona. Pot ser un foc molt petit, "
                      "sota els arbres, una crema agrícola o una detecció falsa.")
     else:
-        conclusio = ("🔥 Superfície cremada estimada: " + num(total) + " ha\n"
+        illes = max(0.0, crema["ha_perimetre"] - total - crema["ha_lleu"])
+        conclusio = ("🔥 Superfície dins del perímetre de l'incendi: " + num(crema["ha_perimetre"]) + " ha\n"
+                     "   (comparable amb les xifres oficials, que inclouen les illes sense cremar)\n\n"
+                     "Dins del perímetre:\n"
                      "   🔴 gravetat alta: " + num(crema["ha_alta"]) + " ha\n"
                      "   🟠 gravetat moderada: " + num(crema["ha_moderada"]) + " ha\n"
-                     "   🟡 afectació lleu (possible): " + num(crema["ha_lleu"]) + " ha")
+                     "   🟡 afectació lleu: " + num(crema["ha_lleu"]) + " ha\n"
+                     "   ⬜ illes sense crema aparent: " + num(illes) + " ha\n"
+                     "   ➡️ cremada de manera clara (alta + moderada): " + num(total) + " ha")
+        if crema["ha_sense_dades"] >= 1:
+            conclusio += "\n☁️ " + num(crema["ha_sense_dades"]) + " ha del perímetre tapades per núvols en alguna de les imatges: la xifra real pot ser més alta."
+        if crema["vora"]:
+            conclusio += "\n⚠️ La zona cremada arriba a la vora del quadrat analitzat: torna-ho a llançar amb un radi més gran."
 
     resum = ("🛰️ ZONA CREMADA — " + nom + "\n\n" + conclusio + "\n\n"
              "📷 Imatges de Sentinel-2: abans, " + data_text(abans[0]) + " · després, " + data_text(despres[0]) + "\n"
