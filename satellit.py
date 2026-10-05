@@ -7,11 +7,14 @@
 #   ABANS de l'incendi i la més recent DESPRÉS, calcula l'índex de crema (dNBR),
 #   la superfície cremada i la gravetat, i envia al bot d'infos les dues imatges
 #   (la de després, amb la zona cremada pintada) i un resum.
+#   Amb data de fi (incendis passats, canvi 05.10.2026), la imatge de després és
+#   la PRIMERA sense núvols després que s'apagués (la vegetació encara no ha
+#   rebrotat); sense data de fi, la més recent.
 #   Si encara no hi ha cap imatge neta de després, l'incendi queda a
 #   pendents.json i es torna a provar cada dia (fins a DIES_MAX_PENDENT dies).
 #
 # Ordres:
-#   python3 satellit.py incendi    (dades a les variables LAT, LON, DATA, NOM, RADI, PUNTS)
+#   python3 satellit.py incendi    (dades a les variables LAT, LON, DATA, DATA_FI, NOM, RADI, PUNTS)
 #   python3 satellit.py pendents   (revisió diària dels incendis pendents)
 #
 # Font: Copernicus Data Space (Sentinel Hub), amb CDSE_CLIENT_ID i CDSE_CLIENT_SECRET.
@@ -284,8 +287,14 @@ def processar_incendi(inc):
     log(" Imatge de després:")
     if (avui - d_incendi).days < 1:
         return False
-    despres = millor_imatge(caixa_utm, caixa_geo, costat, (d_incendi + timedelta(days=1)).isoformat(),
-                            avui.isoformat(), "recent")
+    if inc.get("data_fi"):
+        # Incendi passat: la primera imatge neta després que s'apagués.
+        d_fi = date.fromisoformat(inc["data_fi"])
+        despres = millor_imatge(caixa_utm, caixa_geo, costat, (d_fi + timedelta(days=1)).isoformat(),
+                                min(avui, d_fi + timedelta(days=60)).isoformat(), "antic")
+    else:
+        despres = millor_imatge(caixa_utm, caixa_geo, costat, (d_incendi + timedelta(days=1)).isoformat(),
+                                avui.isoformat(), "recent")
     if not despres:
         log(" Encara no hi ha cap imatge neta de després.")
         return False
@@ -380,6 +389,7 @@ if __name__ == "__main__":
             pass
         inc = {"lat": os.environ["LAT"], "lon": os.environ["LON"],
                "data": (os.environ.get("DATA") or "").strip() or datetime.now(timezone.utc).date().isoformat(),
+               "data_fi": (os.environ.get("DATA_FI") or "").strip(),
                "nom": os.environ.get("NOM", "").strip(), "radi": os.environ.get("RADI", "").strip() or "3",
                "punts": punts}
         revisar_pendents([inc])
