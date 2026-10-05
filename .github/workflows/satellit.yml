@@ -1,0 +1,66 @@
+# =============================================================================
+# SATÈL·LIT — La TdG · 05.10.2026
+# Repositori PÚBLIC latdg/satellit. Fitxers: .github/workflows/satellit.yml,
+# satellit.py i pendents.json (a l'arrel; es crea sol).
+# Secrets: CDSE_CLIENT_ID, CDSE_CLIENT_SECRET, TELEGRAM_TOKEN_INFOS
+# (opcional: TELEGRAM_CHAT_INFOS; per defecte, el teu xat).
+#
+# - L'encarrega el vigilant de FIRMS quan detecta un focus seriós.
+# - També es pot llançar a mà: Actions > Satèl·lit > Run workflow (amb el punt i la data).
+# - Cada dia a les 10.00 h (hora d'estiu) revisa els incendis pendents d'imatge.
+# =============================================================================
+name: Satèl·lit
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode: { description: "incendi o pendents", required: true, default: "incendi" }
+      lat: { description: "latitud del focus (p. ex. 41.9597)", required: false, default: "" }
+      lon: { description: "longitud del focus (p. ex. 3.0386)", required: false, default: "" }
+      data: { description: "data de l'incendi (aaaa-mm-dd)", required: false, default: "" }
+      nom: { description: "nom (p. ex. Incendi de les Gavarres)", required: false, default: "" }
+      radi: { description: "mig costat de la zona en km (1-10)", required: false, default: "3" }
+      punts: { description: "focus FIRMS en JSON [[lat,lon],...] (opcional)", required: false, default: "" }
+  schedule:
+    - cron: "0 8 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: satellit
+  cancel-in-progress: false
+
+jobs:
+  satellit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CDSE_CLIENT_ID: ${{ secrets.CDSE_CLIENT_ID }}
+      CDSE_CLIENT_SECRET: ${{ secrets.CDSE_CLIENT_SECRET }}
+      TELEGRAM_TOKEN_INFOS: ${{ secrets.TELEGRAM_TOKEN_INFOS }}
+      TELEGRAM_CHAT_INFOS: ${{ secrets.TELEGRAM_CHAT_INFOS }}
+      LAT: ${{ inputs.lat }}
+      LON: ${{ inputs.lon }}
+      DATA: ${{ inputs.data }}
+      NOM: ${{ inputs.nom }}
+      RADI: ${{ inputs.radi }}
+      PUNTS: ${{ inputs.punts }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - name: Eines
+        run: pip install -q requests numpy scipy pillow tifffile pyproj
+      - name: Calcular
+        run: python3 satellit.py ${{ github.event_name == 'schedule' && 'pendents' || inputs.mode }}
+      - name: Desar els pendents
+        if: always()
+        run: |
+          if [ -n "$(git status --porcelain pendents.json)" ]; then
+            git config user.name "La TdG"
+            git config user.email "actions@users.noreply.github.com"
+            git add pendents.json
+            git commit -m "Pendents de satèl·lit"
+            git push
+          fi
