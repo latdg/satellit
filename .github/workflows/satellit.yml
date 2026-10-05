@@ -17,7 +17,8 @@ on:
       mode: { description: "incendi o pendents", required: true, default: "incendi" }
       lat: { description: "latitud del focus (p. ex. 41.9597)", required: false, default: "" }
       lon: { description: "longitud del focus (p. ex. 3.0386)", required: false, default: "" }
-      data: { description: "data de l'incendi (aaaa-mm-dd)", required: false, default: "" }
+      data: { description: "data d'inici de l'incendi (aaaa-mm-dd)", required: false, default: "" }
+      data_fi: { description: "data en què es va apagar (aaaa-mm-dd), només per a incendis passats", required: false, default: "" }
       nom: { description: "nom (p. ex. Incendi de les Gavarres)", required: false, default: "" }
       radi: { description: "mig costat de la zona en km (1-10)", required: false, default: "3" }
       punts: { description: "focus FIRMS en JSON [[lat,lon],...] (opcional)", required: false, default: "" }
@@ -43,6 +44,7 @@ jobs:
       LAT: ${{ inputs.lat }}
       LON: ${{ inputs.lon }}
       DATA: ${{ inputs.data }}
+      DATA_FI: ${{ inputs.data_fi }}
       NOM: ${{ inputs.nom }}
       RADI: ${{ inputs.radi }}
       PUNTS: ${{ inputs.punts }}
