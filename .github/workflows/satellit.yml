@@ -5,7 +5,9 @@
 # Secrets: CDSE_CLIENT_ID, CDSE_CLIENT_SECRET, TELEGRAM_TOKEN_INFOS
 # (opcional: TELEGRAM_CHAT_INFOS; per defecte, el teu xat).
 #
-# - L'encarrega el vigilant de FIRMS quan detecta un focus seriós.
+# - Incendis: l'encarrega el vigilant de FIRMS quan detecta un focus seriós.
+# - Inundacions: l'encarrega l'avisador d'incidències (pluja forta a la Bisbal o
+#   Daró alt). A mà: mode "inundacio" i la data de la pluja (lat/lon en blanc).
 # - També es pot llançar a mà: Actions > Satèl·lit > Run workflow (amb el punt i la data).
 # - Cada dia a les 10.00 h (hora d'estiu) revisa els incendis pendents d'imatge.
 # =============================================================================
@@ -14,13 +16,13 @@ name: Satèl·lit
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: "incendi o pendents", required: true, default: "incendi" }
+      mode: { description: "incendi, inundacio o pendents", required: true, default: "incendi" }
       lat: { description: "latitud del focus (p. ex. 41.9597)", required: false, default: "" }
       lon: { description: "longitud del focus (p. ex. 3.0386)", required: false, default: "" }
       data: { description: "data d'inici de l'incendi (aaaa-mm-dd)", required: false, default: "" }
       data_fi: { description: "data en què es va apagar (aaaa-mm-dd), només per a incendis passats", required: false, default: "" }
       nom: { description: "nom (p. ex. Incendi de les Gavarres)", required: false, default: "" }
-      radi: { description: "mig costat de la zona en km (1-10)", required: false, default: "3" }
+      radi: { description: "mig costat de la zona en km (incendi 1-10, per defecte 3; inundació 3-12, per defecte 12)", required: false, default: "" }
       punts: { description: "focus FIRMS en JSON [[lat,lon],...] (opcional)", required: false, default: "" }
   schedule:
     - cron: "0 8 * * *"
