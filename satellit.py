@@ -13,7 +13,16 @@
 #   Si encara no hi ha cap imatge neta de després, l'incendi queda a
 #   pendents.json i es torna a provar cada dia (fins a DIES_MAX_PENDENT dies).
 #
+# MÒDUL 2: ZONES INUNDADES AMB SENTINEL-1 (radar) — afegit 05.10.2026
+#   Per a un episodi de pluja (data), agafa la primera passada del radar el mateix
+#   dia o els dies següents i la compara amb una passada anterior en sec (de la
+#   mateixa òrbita). L'aigua estesa torna molt poc senyal: els píxels que eren
+#   secs i ara retornen molt poc senyal es compten com a inundats. El radar veu
+#   igual amb núvols i de nit. Si en INUNDACIO_DIES_MAX dies no hi ha cap passada,
+#   s'avisa i es deixa córrer (l'aigua ja hauria baixat).
+#
 # Ordres:
+#   python3 satellit.py inundacio  (dades a les variables DATA, NOM; LAT, LON i RADI opcionals)
 #   python3 satellit.py incendi    (dades a les variables LAT, LON, DATA, DATA_FI, NOM, RADI, PUNTS)
 #   python3 satellit.py pendents   (revisió diària dels incendis pendents)
 #
@@ -350,6 +359,181 @@ def processar_incendi(inc):
 
 
 # -----------------------------------------------------------------------------
+# INUNDACIONS (SENTINEL-1)
+# -----------------------------------------------------------------------------
+INUNDACIO_CENTRE = (41.9597, 3.0386)      # la Bisbal d'Empordà
+INUNDACIO_RADI_KM = 12                    # quadrat de 24 x 24 km (els quatre municipis i la plana del Daró)
+INUNDACIO_RESOLUCIO = 20                  # metres per píxel (prou per a camps negats)
+INUNDACIO_DIES_MAX = 4                    # dies després de la pluja que es busca una passada
+AIGUA_DB = -18.0                          # per sota d'aquest senyal (dB), aigua
+CAIGUDA_DB = 3.0                          # el senyal ha de baixar com a mínim això respecte de la referència
+MIN_PIXELS_TACA = 5                       # taques més petites, soroll
+
+EVAL_VV = """//VERSION=3
+function setup() { return { input: [{ bands: ["VV", "dataMask"] }], output: { bands: 2, sampleType: "FLOAT32" } }; }
+function evaluatePixel(s) { return [s.VV, s.dataMask]; }"""
+
+
+def passades_s1(caixa_geo, des_de, fins_a):
+    """[(dia, orbita)] de les passades de Sentinel-1 a la zona."""
+    cos = {"bbox": caixa_geo, "collections": ["sentinel-1-grd"], "limit": 100,
+           "datetime": des_de + "T00:00:00Z/" + fins_a + "T23:59:59Z",
+           "fields": {"include": ["properties.datetime", "properties.sat:orbit_state"], "exclude": []}}
+    r = requests.post(URL_CATALEG, json=cos, headers=capcaleres(), timeout=90)
+    if r.status_code != 200:
+        raise RuntimeError("Catàleg de Copernicus (radar): HTTP %s %s" % (r.status_code, r.text[:200]))
+    vistes = {}
+    for f in r.json().get("features", []):
+        p = f.get("properties", {})
+        dia = str(p.get("datetime", ""))[:10]
+        orbita = str(p.get("sat:orbit_state", "")).upper()
+        if dia and orbita in ("ASCENDING", "DESCENDING"):
+            vistes[(dia, orbita)] = True
+    return sorted(vistes)
+
+
+def vv_db(caixa_utm, costat, dia, orbita):
+    import tifffile
+    from scipy import ndimage
+    cos = {
+        "input": {
+            "bounds": {"bbox": caixa_utm, "properties": {"crs": CRS_UTM}},
+            "data": [{"type": "sentinel-1-grd",
+                      "dataFilter": {"timeRange": {"from": dia + "T00:00:00Z", "to": dia + "T23:59:59Z"},
+                                     "acquisitionMode": "IW", "polarization": "DV", "orbitDirection": orbita},
+                      "processing": {"backCoeff": "GAMMA0_TERRAIN", "orthorectify": True, "demInstance": "COPERNICUS"}}]
+        },
+        "output": {"width": costat, "height": costat,
+                   "responses": [{"identifier": "default", "format": {"type": "image/tiff"}}]},
+        "evalscript": EVAL_VV
+    }
+    r = requests.post(URL_PROCES, json=cos, headers=capcaleres(), timeout=180)
+    if r.status_code != 200:
+        raise RuntimeError("Copernicus (radar del %s): HTTP %s %s" % (dia, r.status_code, r.text[:200]))
+    a = tifffile.imread(io.BytesIO(r.content))
+    if a.ndim == 3 and a.shape[0] == 2 and a.shape[-1] != 2:
+        a = np.moveaxis(a, 0, -1)
+    vv, valid = a[..., 0], a[..., 1] > 0.5
+    db = 10 * np.log10(np.clip(vv, 1e-5, None))
+    db = ndimage.median_filter(db, size=3)        # treu el "soroll" granulat del radar
+    return db.astype("float32"), valid
+
+
+def calcular_inundacio(ref_db, ref_valid, post_db, post_valid):
+    from scipy import ndimage
+    valid = ref_valid & post_valid
+    aigua_abans = ref_db < AIGUA_DB                   # rius, basses i mar: ja hi eren
+    inundat = valid & (post_db < AIGUA_DB) & ((ref_db - post_db) >= CAIGUDA_DB) & ~aigua_abans
+    etiquetes, n = ndimage.label(inundat, structure=np.ones((3, 3)))
+    if n:
+        mides = ndimage.sum(inundat, etiquetes, index=np.arange(1, n + 1))
+        grans = np.arange(1, n + 1)[mides >= MIN_PIXELS_TACA]
+        inundat = np.isin(etiquetes, grans)
+        etiquetes, n = ndimage.label(inundat, structure=np.ones((3, 3)))
+    ha_pixel = INUNDACIO_RESOLUCIO * INUNDACIO_RESOLUCIO / 10000.0
+    taques = []
+    if n:
+        mides = ndimage.sum(inundat, etiquetes, index=np.arange(1, n + 1))
+        centres = ndimage.center_of_mass(inundat, etiquetes, index=np.arange(1, n + 1))
+        for i in np.argsort(mides)[::-1][:5]:
+            taques.append({"ha": float(mides[i] * ha_pixel), "fila": centres[i][0], "col": centres[i][1]})
+    return {"mascara": inundat, "ha": float(inundat.sum() * ha_pixel), "taques": taques,
+            "valid": float(valid.mean())}
+
+
+def imatge_radar(db, mascara=None):
+    from PIL import Image
+    gris = np.clip((db + 25) / 25 * 255, 0, 255).astype(np.uint8)
+    img = Image.fromarray(gris, "L").convert("RGB")
+    if mascara is not None:
+        capa = np.zeros(db.shape + (4,), dtype=np.uint8)
+        capa[mascara] = (0, 120, 255, 200)
+        img = Image.alpha_composite(img.convert("RGBA"), Image.fromarray(capa, "RGBA")).convert("RGB")
+    if img.width > 1280:
+        img = img.resize((1280, 1280))
+    sortida = io.BytesIO()
+    img.save(sortida, "JPEG", quality=88)
+    return sortida.getvalue()
+
+
+def lat_lon_de(fila, col, caixa_utm, resolucio):
+    from pyproj import Transformer
+    x = caixa_utm[0] + (col + 0.5) * resolucio
+    y = caixa_utm[3] - (fila + 0.5) * resolucio
+    lon, lat = Transformer.from_crs("EPSG:32631", "EPSG:4326", always_xy=True).transform(x, y)
+    return lat, lon
+
+
+def processar_inundacio(inc):
+    lat = float(inc.get("lat") or INUNDACIO_CENTRE[0])
+    lon = float(inc.get("lon") or INUNDACIO_CENTRE[1])
+    radi = max(3.0, min(12.0, float(inc.get("radi") or INUNDACIO_RADI_KM)))
+    dia = inc["data"]
+    nom = inc.get("nom") or ("Pluges del " + data_text(dia))
+    log("Inundació:", nom, dia)
+
+    x, y = a_utm(lat, lon)
+    m = radi * 1000
+    caixa_utm = [x - m, y - m, x + m, y + m]
+    costat = int(round(2 * m / INUNDACIO_RESOLUCIO))
+    dlat, dlon = radi / 111.32, radi / (111.32 * math.cos(math.radians(lat)))
+    caixa_geo = [lon - dlon, lat - dlat, lon + dlon, lat + dlat]
+
+    d_pluja = date.fromisoformat(dia)
+    avui = datetime.now(timezone.utc).date()
+    limit = min(avui, d_pluja + timedelta(days=INUNDACIO_DIES_MAX))
+
+    despres = passades_s1(caixa_geo, dia, limit.isoformat())
+    if not despres:
+        if (avui - d_pluja).days > INUNDACIO_DIES_MAX:
+            tg("sendMessage", {"chat_id": TG_CHAT, "text": "🛰️ " + nom + "\nEl radar Sentinel-1 no ha passat per la zona "
+                               "en els " + str(INUNDACIO_DIES_MAX) + " dies posteriors a la pluja: no hi ha mapa d'inundació."})
+            return True
+        log(" Encara no hi ha cap passada del radar després de la pluja.")
+        return False
+    dia_post, orbita = despres[0]
+
+    # Referència en sec: la passada més recent de la mateixa òrbita, entre 5 i 40 dies abans.
+    abans = [p for p in passades_s1(caixa_geo, (d_pluja - timedelta(days=40)).isoformat(),
+                                    (d_pluja - timedelta(days=5)).isoformat()) if p[1] == orbita]
+    if not abans:
+        tg("sendMessage", {"chat_id": TG_CHAT, "text": "🛰️ " + nom + "\nNo hi ha cap passada anterior del radar de la mateixa "
+                           "òrbita per comparar: no es pot fer el mapa d'inundació."})
+        return True
+    dia_ref = abans[-1][0]
+    log(" Radar: referència", dia_ref, "· després", dia_post, "·", orbita)
+
+    ref_db, ref_valid = vv_db(caixa_utm, costat, dia_ref, orbita)
+    post_db, post_valid = vv_db(caixa_utm, costat, dia_post, orbita)
+    res = calcular_inundacio(ref_db, ref_valid, post_db, post_valid)
+    log(" Inundat: %.1f ha" % res["ha"])
+
+    linies = ["🛰️ ZONES INUNDADES (radar Sentinel-1) — " + nom, ""]
+    if res["ha"] < 1:
+        linies.append("💧 El radar no hi veu cap zona negada clara a l'hora de la passada (" + data_text(dia_post) + ").")
+    else:
+        linies.append("💧 Superfície amb aigua estesa: " + num(res["ha"]) + " ha")
+        linies.append("Zones més grans:")
+        for t in res["taques"]:
+            la, lo = lat_lon_de(t["fila"], t["col"], caixa_utm, INUNDACIO_RESOLUCIO)
+            linies.append("   • " + num(t["ha"]) + " ha · https://www.google.com/maps?q=%.5f,%.5f" % (la, lo))
+    linies += ["",
+               "📷 Radar del " + data_text(dia_post) + " comparat amb el del " + data_text(dia_ref) + " (en sec, mateixa òrbita)",
+               "📍 Zona analitzada: " + num(2 * radi) + " × " + num(2 * radi) + " km al voltant de la Bisbal",
+               "ℹ️ És la situació a l'hora de la passada: si l'aigua ja havia baixat, no surt. El radar no veu bé "
+               "l'aigua als carrers ni sota els arbres. Estimació automàtica: cal contrastar-la.",
+               "🗺️ Explorar: https://browser.dataspace.copernicus.eu/?zoom=12&lat=%.5f&lng=%.5f" % (lat, lon)]
+
+    media = [{"type": "photo", "media": "attach://ref", "caption": "Radar en sec · " + data_text(dia_ref)},
+             {"type": "photo", "media": "attach://post",
+              "caption": "Radar del " + data_text(dia_post) + " · en blau, l'aigua nova"}]
+    tg("sendMediaGroup", {"chat_id": TG_CHAT, "media": json.dumps(media)},
+       {"ref": ("ref.jpg", imatge_radar(ref_db)), "post": ("post.jpg", imatge_radar(post_db, res["mascara"]))})
+    tg("sendMessage", {"chat_id": TG_CHAT, "text": "\n".join(linies), "disable_web_page_preview": "true"})
+    return True
+
+
+# -----------------------------------------------------------------------------
 # PENDENTS
 # -----------------------------------------------------------------------------
 def llegir_pendents():
@@ -368,8 +552,9 @@ def desar_pendents(llista):
 def revisar_pendents(nous=None):
     llista = llegir_pendents()
     for inc in (nous or []):
-        clau = "%.3f|%.3f|%s" % (float(inc["lat"]), float(inc["lon"]), inc["data"])
-        if any("%.3f|%.3f|%s" % (float(p["lat"]), float(p["lon"]), p["data"]) == clau for p in llista):
+        clau_de = lambda p: (p.get("tipus") or "incendi") + "|" + ("%.3f|%.3f" % (float(p.get("lat") or 0), float(p.get("lon") or 0))) + "|" + p["data"]
+        clau = clau_de(inc)
+        if any(clau_de(p) == clau for p in llista):
             log("Ja és a la llista de pendents:", clau)
             continue
         inc["afegit"] = datetime.now(timezone.utc).date().isoformat()
@@ -379,13 +564,13 @@ def revisar_pendents(nous=None):
     avui = datetime.now(timezone.utc).date()
     for inc in llista:
         try:
-            fet = processar_incendi(inc)
+            fet = processar_inundacio(inc) if inc.get("tipus") == "inundacio" else processar_incendi(inc)
         except Exception as e:
             log("❌", e)
             fet = False
         if fet:
             continue
-        if (avui - date.fromisoformat(inc["data"])).days > DIES_MAX_PENDENT:
+        if inc.get("tipus") != "inundacio" and (avui - date.fromisoformat(inc["data"])).days > DIES_MAX_PENDENT:
             tg("sendMessage", {"chat_id": TG_CHAT, "text": "🛰️ " + (inc.get("nom") or "Incendi") + "\nEn " +
                                str(DIES_MAX_PENDENT) + " dies no hi ha hagut cap imatge de Sentinel-2 sense núvols: "
                                "no es pot calcular la zona cremada."})
@@ -397,7 +582,12 @@ def revisar_pendents(nous=None):
 
 if __name__ == "__main__":
     ordre = sys.argv[1] if len(sys.argv) > 1 else "pendents"
-    if ordre == "incendi":
+    if ordre == "inundacio":
+        revisar_pendents([{"tipus": "inundacio",
+                           "data": (os.environ.get("DATA") or "").strip() or datetime.now(timezone.utc).date().isoformat(),
+                           "nom": os.environ.get("NOM", "").strip(), "lat": os.environ.get("LAT", "").strip(),
+                           "lon": os.environ.get("LON", "").strip(), "radi": os.environ.get("RADI", "").strip()}])
+    elif ordre == "incendi":
         punts = []
         try:
             punts = json.loads(os.environ.get("PUNTS") or "[]")
