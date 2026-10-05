@@ -9,23 +9,25 @@
 # - Inundacions: l'encarrega l'avisador d'incidències (pluja forta a la Bisbal o
 #   Daró alt). A mà: mode "inundacio" i la data de la pluja (lat/lon en blanc).
 # - També es pot llançar a mà: Actions > Satèl·lit > Run workflow (amb el punt i la data).
-# - Cada dia a les 10.00 h (hora d'estiu) revisa els incendis pendents d'imatge.
+# - Cada dia a les 10.00 h (hora d'estiu) revisa els incendis i inundacions pendents.
+# - El dia 5 de cada mes, informes de vegetació i de canvis al territori del mes anterior.
 # =============================================================================
 name: Satèl·lit
 
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: "incendi, inundacio o pendents", required: true, default: "incendi" }
+      mode: { description: "incendi, inundacio, mensual, vegetacio, canvis o pendents", required: true, default: "incendi" }
       lat: { description: "latitud del focus (p. ex. 41.9597)", required: false, default: "" }
       lon: { description: "longitud del focus (p. ex. 3.0386)", required: false, default: "" }
-      data: { description: "data d'inici de l'incendi (aaaa-mm-dd)", required: false, default: "" }
+      data: { description: "data (aaaa-mm-dd); als informes mensuals, el mes (aaaa-mm)", required: false, default: "" }
       data_fi: { description: "data en què es va apagar (aaaa-mm-dd), només per a incendis passats", required: false, default: "" }
       nom: { description: "nom (p. ex. Incendi de les Gavarres)", required: false, default: "" }
       radi: { description: "mig costat de la zona en km (incendi 1-10, per defecte 3; inundació 3-12, per defecte 12)", required: false, default: "" }
       punts: { description: "focus FIRMS en JSON [[lat,lon],...] (opcional)", required: false, default: "" }
   schedule:
-    - cron: "0 8 * * *"
+    - cron: "0 8 * * *"      # incendis i inundacions pendents
+    - cron: "0 9 5 * *"      # informes mensuals (vegetació i canvis), el dia 5
 
 permissions:
   contents: write
@@ -37,7 +39,7 @@ concurrency:
 jobs:
   satellit:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     env:
       CDSE_CLIENT_ID: ${{ secrets.CDSE_CLIENT_ID }}
       CDSE_CLIENT_SECRET: ${{ secrets.CDSE_CLIENT_SECRET }}
@@ -57,7 +59,7 @@ jobs:
       - name: Eines
         run: pip install -q requests numpy scipy pillow tifffile pyproj
       - name: Calcular
-        run: python3 satellit.py ${{ github.event_name == 'schedule' && 'pendents' || inputs.mode }}
+        run: python3 satellit.py ${{ github.event_name == 'schedule' && (github.event.schedule == '0 9 5 * *' && 'mensual' || 'pendents') || inputs.mode }}
       - name: Desar els pendents
         if: always()
         run: |
