@@ -1,0 +1,48 @@
+# =============================================================================
+# PUNTS DE CALOR (NASA FIRMS) — La TdG · portat d'Apps Script el 21.10.2026
+# Cada 30 minuts (també de nit) consulta FIRMS i avisa el bot d'infos de les
+# deteccions noves a 30 km de la Bisbal. Els focus seriosos s'encarreguen a
+# satellit.yml (zona cremada amb Sentinel-2). Vegeu firms.py.
+# SECRETS: FIRMS_MAP_KEY · TELEGRAM_TOKEN_INFOS · TELEGRAM_CHAT_INFOS
+# =============================================================================
+
+name: Punts de calor (FIRMS)
+
+on:
+  schedule:
+    - cron: "13,43 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: firms
+  cancel-in-progress: false
+
+jobs:
+  firms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Revisió de FIRMS
+        env:
+          FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
+          TELEGRAM_TOKEN_INFOS: ${{ secrets.TELEGRAM_TOKEN_INFOS }}
+          TELEGRAM_CHAT_INFOS: ${{ secrets.TELEGRAM_CHAT_INFOS }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
+          git clone -q --depth 1 --branch firms-estat "$URL" /tmp/estat 2>/dev/null || mkdir -p /tmp/estat
+          rm -rf /tmp/estat/.git
+          python3 firms.py /tmp/estat
+          cd /tmp/estat
+          git init -q -b firms-estat
+          git add -A
+          git -c user.name="La TdG (FIRMS)" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Estat de FIRMS ($(TZ=Europe/Madrid date '+%d.%m.%Y %H.%M'))"
+          git push -qf "$URL" firms-estat
