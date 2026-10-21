@@ -8,9 +8,11 @@
 
 name: Punts de calor (FIRMS)
 
+# 21.10.2026: l'horari de GitHub no arriba: bucle de 5 h 30 min (cada 30 minuts)
+# que es torna a llançar ell mateix; l'horari queda com a reserva.
 on:
   schedule:
-    - cron: "13,43 * * * *"
+    - cron: "13 */2 * * *"
   workflow_dispatch:
 
 permissions:
@@ -24,11 +26,11 @@ concurrency:
 jobs:
   firms:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
-      - name: Revisió de FIRMS
+      - name: Revisió de FIRMS (bucle cada 30 minuts, 5 h 30 min)
         env:
           FIRMS_MAP_KEY: ${{ secrets.FIRMS_MAP_KEY }}
           TELEGRAM_TOKEN_INFOS: ${{ secrets.TELEGRAM_TOKEN_INFOS }}
@@ -37,12 +39,23 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           URL="https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git"
-          git clone -q --depth 1 --branch firms-estat "$URL" /tmp/estat 2>/dev/null || mkdir -p /tmp/estat
-          rm -rf /tmp/estat/.git
-          python3 firms.py /tmp/estat
-          cd /tmp/estat
-          git init -q -b firms-estat
-          git add -A
-          git -c user.name="La TdG (FIRMS)" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -qm "Estat de FIRMS ($(TZ=Europe/Madrid date '+%d.%m.%Y %H.%M'))"
-          git push -qf "$URL" firms-estat
+          FI=$((SECONDS + 19800))
+          while :; do
+            rm -rf /tmp/estat
+            git clone -q --depth 1 --branch firms-estat "$URL" /tmp/estat 2>/dev/null || mkdir -p /tmp/estat
+            rm -rf /tmp/estat/.git
+            python3 firms.py /tmp/estat || true
+            (cd /tmp/estat && git init -q -b firms-estat && git add -A &&
+             git -c user.name="La TdG (FIRMS)" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+               commit -qm "Estat de FIRMS ($(TZ=Europe/Madrid date '+%d.%m.%Y %H.%M'))" && git push -qf "$URL" firms-estat) || true
+            ara=$(date +%s); espera=$(( 1800 - (ara % 1800) + 780 ))   # als minuts 13 i 43
+            [ $espera -gt 1800 ] && espera=$((espera - 1800))
+            [ $((SECONDS + espera + 120)) -ge $FI ] && break
+            sleep $espera
+          done
+
+      - name: Tornar-se a llançar
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run firms.yml -R "${{ github.repository }}"
