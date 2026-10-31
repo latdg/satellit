@@ -41,7 +41,7 @@
 #
 # Font: Copernicus Data Space (Sentinel Hub), amb CDSE_CLIENT_ID i CDSE_CLIENT_SECRET.
 # =============================================================================
-import io, json, math, os, sys, time
+import io, json, math, os, re, sys, time
 from datetime import date, datetime, timedelta, timezone
 
 import numpy as np
@@ -98,7 +98,17 @@ def data_text(iso):
     return d[8:10] + "." + d[5:7] + "." + d[0:4]
 
 
+_ART_DATA = re.compile(r"(^|[^0-9A-Za-zÀ-ÿ·'’])(el|El|del|Del|al|Al) (?=(?:0?1|11)[./-](?:0?[1-9]|1[0-2])(?![0-9]))")
+_APOSTROF = {"el": "l'", "El": "L'", "del": "de l'", "Del": "De l'", "al": "a l'", "Al": "A l'"}
+
+
+def apostrofa_dates(text):
+    """01.11.2026: «el 01.11.2026» → «l'01.11.2026», «del 11.11» → «de l'11.11», «al 01.11» → «a l'01.11»."""
+    return _ART_DATA.sub(lambda m: m.group(1) + _APOSTROF[m.group(2)], text) if isinstance(text, str) else text
+
+
 def tg(metode, dades=None, fitxers=None):
+    dades = {k: apostrofa_dates(v) for k, v in (dades or {}).items()}   # textos, peus i àlbums
     if not TG_TOKEN:
         log("Telegram: falta el secret TELEGRAM_TOKEN_INFOS.")
         return {}
