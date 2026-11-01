@@ -98,7 +98,7 @@ def data_text(iso):
     return d[8:10] + "." + d[5:7] + "." + d[0:4]
 
 
-_ART_DATA = re.compile(r"(^|[^0-9A-Za-zÀ-ÿ·'’])(el|El|del|Del|al|Al) (?=(?:0?1|11)[./-](?:0?[1-9]|1[0-2])(?![0-9]))")
+_ART_DATA = re.compile(r"(^|[^0-9A-Za-zÀ-ÿ·'’])(el|El|del|Del|al|Al) (?=(?:0?1|11)[./-](?:0?[1-9]|1[0-2])(?![0-9])|1{1,2}(?:[.,][0-9]+)?\s?%)")
 _APOSTROF = {"el": "l'", "El": "L'", "del": "de l'", "Del": "De l'", "al": "a l'", "Al": "A l'"}
 
 
