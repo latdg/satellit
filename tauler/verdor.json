@@ -29,19 +29,19 @@
   "abans": "octubre de 2025",
   "any": 2026,
   "numMes": 10,
-  "ndvi": 0.603,
-  "ndviAbans": 0.61,
-  "mesSec": 13.3,
-  "mesVerd": 14.6,
+  "ndvi": 0.548,
+  "ndviAbans": 0.565,
+  "mesSec": 14.6,
+  "mesVerd": 13.7,
   "minHa": 0.5,
   "caixa": [
    [
-    41.85158,
-    2.89397
+    41.81554,
+    2.86996
    ],
    [
-    42.06764,
-    3.18372
+    42.06761,
+    3.2079
    ]
   ],
   "imatges": {
@@ -52,8 +52,8 @@
   "taques": [
    {
     "ha": 1753.9,
-    "lat": 41.89106,
-    "lon": 3.02704,
+    "lat": 41.89107,
+    "lon": 3.02705,
     "tipus": "sòl nu o construcció",
     "imatges": [
      "zona1-abans.png",
@@ -62,8 +62,8 @@
    },
    {
     "ha": 49.4,
-    "lat": 41.86168,
-    "lon": 3.0555,
+    "lat": 41.86169,
+    "lon": 3.05551,
     "tipus": "sòl nu o construcció",
     "imatges": [
      "zona2-abans.png",
@@ -72,8 +72,8 @@
    },
    {
     "ha": 21.0,
-    "lat": 41.8967,
-    "lon": 2.99981,
+    "lat": 41.89671,
+    "lon": 2.99982,
     "tipus": "pèrdua de vegetació",
     "imatges": [
      "zona3-abans.png",
@@ -82,40 +82,40 @@
    },
    {
     "ha": 14.1,
-    "lat": 42.03693,
-    "lon": 3.05415,
+    "lat": 42.03694,
+    "lon": 3.05416,
     "tipus": "sòl nu o construcció",
+    "imatges": []
+   },
+   {
+    "ha": 11.5,
+    "lat": 41.81709,
+    "lon": 2.98606,
+    "tipus": "sòl nu o construcció",
+    "imatges": []
+   },
+   {
+    "ha": 10.0,
+    "lat": 41.8166,
+    "lon": 2.87761,
+    "tipus": "sòl nu o construcció",
+    "imatges": []
+   },
+   {
+    "ha": 9.9,
+    "lat": 41.84534,
+    "lon": 2.92706,
+    "tipus": "pèrdua de vegetació",
     "imatges": []
    },
    {
     "ha": 7.6,
-    "lat": 41.98229,
-    "lon": 3.13279,
-    "tipus": "sòl nu o construcció",
-    "imatges": []
-   },
-   {
-    "ha": 5.7,
-    "lat": 42.05931,
-    "lon": 3.08763,
-    "tipus": "pèrdua de vegetació",
-    "imatges": []
-   },
-   {
-    "ha": 5.6,
-    "lat": 42.0268,
-    "lon": 3.04506,
-    "tipus": "pèrdua de vegetació",
-    "imatges": []
-   },
-   {
-    "ha": 5.4,
-    "lat": 41.98235,
-    "lon": 2.9796,
+    "lat": 41.98231,
+    "lon": 3.1328,
     "tipus": "sòl nu o construcció",
     "imatges": []
    }
   ],
-  "generat": "2026-11-07T06:15:55+00:00"
+  "generat": "2026-11-07T07:12:18+00:00"
  }
 }
