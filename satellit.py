@@ -628,7 +628,13 @@ def demanar_rang(caixa_utm, costat, des, fins, evalscript, format_, ordre="least
                    "responses": [{"identifier": "default", "format": {"type": format_}}]},
         "evalscript": evalscript
     }
-    r = requests.post(URL_PROCES, json=cos, headers=capcaleres(), timeout=300)
+    # 07.11.2026: Copernicus limita les peticions per minut (HTTP 429): s'espera i es torna a provar.
+    for intent in range(6):
+        r = requests.post(URL_PROCES, json=cos, headers=capcaleres(), timeout=300)
+        if r.status_code != 429:
+            break
+        log("  Copernicus: massa peticions; s'espera", 15 * (intent + 1), "s")
+        time.sleep(15 * (intent + 1))
     if r.status_code != 200:
         raise RuntimeError("Copernicus (" + des + " - " + fins + "): HTTP %s %s" % (r.status_code, r.text[:200]))
     return r.content
