@@ -17,7 +17,7 @@ name: Satèl·lit
 on:
   workflow_dispatch:
     inputs:
-      mode: { description: "incendi, inundacio, mensual, vegetacio, canvis o pendents", required: true, default: "incendi" }
+      mode: { description: "incendi, inundacio, mensual, vegetacio, canvis, tauler (només el bloc del tauler) o pendents", required: true, default: "incendi" }
       lat: { description: "latitud del focus (p. ex. 41.9597)", required: false, default: "" }
       lon: { description: "longitud del focus (p. ex. 3.0386)", required: false, default: "" }
       data: { description: "data (aaaa-mm-dd); als informes mensuals, el mes (aaaa-mm)", required: false, default: "" }
@@ -60,13 +60,15 @@ jobs:
         run: pip install -q requests numpy scipy pillow tifffile pyproj
       - name: Calcular
         run: python3 satellit.py ${{ github.event_name == 'schedule' && (github.event.schedule == '0 9 5 * *' && 'mensual' || 'pendents') || inputs.mode }}
-      - name: Desar els pendents
+      - name: Desar els pendents (i el bloc del tauler, 07.11.2026)
         if: always()
         run: |
-          if [ -n "$(git status --porcelain pendents.json)" ]; then
+          if [ -n "$(git status --porcelain pendents.json tauler)" ]; then
             git config user.name "La TdG"
             git config user.email "actions@users.noreply.github.com"
             git add pendents.json
+            [ -d tauler ] && git add tauler
             git commit -m "Pendents de satèl·lit"
+            git pull -q --rebase || true
             git push
           fi

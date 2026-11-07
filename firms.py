@@ -295,6 +295,37 @@ def main(carpeta):
         for k in [k for k, v in vistes.items() if v < limit]:
             del vistes[k]
     fitxer.write_text(json.dumps(estat, separators=(",", ":")), encoding="utf-8")
+    desa_tauler(carpeta, deteccions, historic)
+
+
+# TAULER (07.11.2026): les deteccions dels darrers 7 dies per al bloc «Focus de
+# calor» de La TdG ampliada (latdg/tauler), que llegeix tauler.json d'aquesta branca.
+# Les de confiança baixa i els punts ignorats no hi surten, com als avisos.
+DIES_TAULER = 7
+
+
+def desa_tauler(carpeta, deteccions, historic):
+    fitxer = carpeta / "tauler.json"
+    try:
+        abans = json.loads(fitxer.read_text(encoding="utf-8")).get("deteccions", [])
+    except Exception:
+        abans = []
+    limit = time.time() * 1000 - DIES_TAULER * 86400000
+    per_id = {d["id"]: d for d in abans if d.get("quan", 0) >= limit}
+    for d in deteccions:
+        if not d["acceptada"] or ignorat(d) or d["quan"] < limit:
+            continue
+        per_id[d["id"]] = {
+            "id": d["id"], "font": d["font"], "lat": round(d["lat"], 5), "lon": round(d["lon"], 5), "quan": d["quan"],
+            "hora": dt.datetime.fromtimestamp(d["quan"] / 1000, TZ).strftime("%d.%m.%Y %H.%M") + " h",
+            "confianca": d["confianca"], "frp": d["frp"], "nit": d["nit"], "km": round(d["km"], 1), "rumb": d["rumb"],
+        }
+    llista = sorted(per_id.values(), key=lambda d: -d["quan"])
+    for d in llista:
+        d["dies"] = dies_punt(historic, d)
+    fitxer.write_text(json.dumps({
+        "generat": dt.datetime.now(TZ).isoformat(timespec="seconds"), "radiKm": RADI_KM, "dies": DIES_TAULER,
+        "deteccions": llista}, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
 
 if __name__ == "__main__":

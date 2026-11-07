@@ -34,6 +34,7 @@
 #
 # Ordres:
 #   python3 satellit.py mensual    (vegetació i canvis del mes anterior; DATA=aaaa-mm per a un altre mes)
+#   python3 satellit.py tauler     (el mateix, però només desa el bloc del tauler, a tauler/; no envia res)
 #   python3 satellit.py vegetacio  /  python3 satellit.py canvis
 #   python3 satellit.py inundacio  (dades a les variables DATA, NOM; LAT, LON i RADI opcionals)
 #   python3 satellit.py incendi    (dades a les variables LAT, LON, DATA, DATA_FI, NOM, RADI, PUNTS)
@@ -107,7 +108,12 @@ def apostrofa_dates(text):
     return _ART_DATA.sub(lambda m: m.group(1) + _APOSTROF[m.group(2)], text) if isinstance(text, str) else text
 
 
+SENSE_TG = False   # 07.11.2026: ordre «tauler» (només desa el bloc del tauler, sense enviar res)
+
+
 def tg(metode, dades=None, fitxers=None):
+    if SENSE_TG:
+        return {}
     dades = {k: apostrofa_dates(v) for k, v in (dades or {}).items()}   # textos, peus i àlbums
     if not TG_TOKEN:
         log("Telegram: falta el secret TELEGRAM_TOKEN_INFOS.")
@@ -663,6 +669,61 @@ def mapa_anomalia(anom):
     return sortida.getvalue()
 
 
+# -----------------------------------------------------------------------------
+# BLOC «VERDOR» DE LA TdG AMPLIADA (07.11.2026)
+# Els informes mensuals també es desen a tauler/ (verdor.json i les imatges),
+# que el tauler (latdg/tauler) llegeix d'aquest repositori públic.
+# -----------------------------------------------------------------------------
+CARPETA_TAULER = "tauler"
+
+
+def caixa_latlon(caixa_utm):
+    """Cantonades sud-oest i nord-est [lat, lon] de la caixa UTM (per posar la imatge al mapa)."""
+    from pyproj import Transformer
+    t = Transformer.from_crs("EPSG:32631", "EPSG:4326", always_xy=True)
+    lo0, la0 = t.transform(caixa_utm[0], caixa_utm[1])
+    lo1, la1 = t.transform(caixa_utm[2], caixa_utm[3])
+    return [[round(la0, 5), round(lo0, 5)], [round(la1, 5), round(lo1, 5)]]
+
+
+def mapa_verdor(ndvi):
+    """Verdor (NDVI) en colors: marró (sòl nu) → groc → verd fosc (bosc dens); gris sense dades."""
+    from PIL import Image
+    punts = [(0.0, (166, 120, 72)), (0.2, (214, 186, 120)), (0.35, (236, 228, 140)),
+             (0.5, (168, 208, 110)), (0.65, (88, 168, 72)), (0.8, (30, 112, 48)), (1.0, (12, 70, 30))]
+    v = np.clip(np.nan_to_num(ndvi, nan=0.0), 0, 1)
+    img = np.zeros(ndvi.shape + (3,), dtype=np.float32)
+    for (x0, c0), (x1, c1) in zip(punts[:-1], punts[1:]):
+        m = (v >= x0) & (v <= x1)
+        f = ((v[m] - x0) / (x1 - x0))[:, None]
+        img[m] = np.array(c0) * (1 - f) + np.array(c1) * f
+    img[np.isnan(ndvi)] = 225
+    pil = Image.fromarray(img.astype(np.uint8), "RGB")
+    if pil.width > 1200:
+        pil = pil.resize((1200, 1200))
+    sortida = io.BytesIO()
+    pil.save(sortida, "JPEG", quality=88)
+    return sortida.getvalue()
+
+
+def desa_tauler(part, dades, imatges=None):
+    os.makedirs(CARPETA_TAULER, exist_ok=True)
+    cami = os.path.join(CARPETA_TAULER, "verdor.json")
+    try:
+        with open(cami, encoding="utf-8") as f:
+            tot = json.load(f)
+    except Exception:
+        tot = {}
+    for nom, contingut in (imatges or {}).items():
+        with open(os.path.join(CARPETA_TAULER, nom), "wb") as f:
+            f.write(contingut)
+    dades["generat"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    tot[part] = dades
+    with open(cami, "w", encoding="utf-8") as f:
+        json.dump(tot, f, ensure_ascii=False, indent=1)
+    log("Tauler:", part, "desat")
+
+
 def informe_vegetacio(any_, mes):
     caixa, costat = zona_mensual()
     nom_mes = MESOS_CAT[mes] + " de " + str(any_)
@@ -706,8 +767,20 @@ def informe_vegetacio(any_, mes):
                "ℹ️ Un índex més baix pot indicar sequera, però també incendis, tales o collites. "
                "Mapa: vermell = més sec que de costum; verd = més verd. Estimació automàtica: cal contrastar-la.",
                "Font: Sentinel-2 (Copernicus)"]
+    imatge = mapa_anomalia(anom)
     tg("sendPhoto", {"chat_id": TG_CHAT, "caption": "🌿 Vegetació — " + nom_mes + " (vermell: més sec · verd: més verd)"},
-       {"photo": ("vegetacio.jpg", mapa_anomalia(anom))})
+       {"photo": ("vegetacio.jpg", imatge)})
+    try:
+        desa_tauler("vegetacio", {
+            "mes": nom_mes, "any": any_, "numMes": mes, "referencia": "%d-%d" % (ANY_INICI_HISTORIC, any_ - 1),
+            "ndvi": round(tot_ara, 3), "ndviRef": round(tot_ref, 3),
+            "variacio": round((tot_ara - tot_ref) / tot_ref * 100, 1),
+            "bosc": round((b_ara - b_ref) / b_ref * 100, 1) if bosc.sum() > 100 else None,
+            "mesSec": round(sec, 1), "mesVerd": round(verd, 1),
+            "senseImatge": round(float(np.isnan(ndvi).mean() * 100), 1),
+            "caixa": caixa_latlon(caixa), "imatge": "anomalia.jpg"}, {"anomalia.jpg": imatge})
+    except Exception as e:
+        log("Tauler (vegetació):", e)
     tg("sendMessage", {"chat_id": TG_CHAT, "text": "\n".join(linies), "disable_web_page_preview": "true"})
 
 
@@ -738,6 +811,13 @@ def informe_canvis(any_, mes):
             taques.append({"ha": ha, "lat": la, "lon": lo,
                            "tipus": "sòl nu o construcció" if dswir[i] >= 0.05 else "pèrdua de vegetació"})
 
+    # Bloc del tauler: la verdor d'ara, la de fa un any i la diferència (07.11.2026)
+    imatges_tauler = {}
+    try:
+        imatges_tauler = {"verdor-ara.jpg": mapa_verdor(ndvi), "verdor-abans.jpg": mapa_verdor(ndvi0),
+                          "verdor-diferencia.jpg": mapa_anomalia(ndvi - ndvi0)}
+    except Exception as e:
+        log("Tauler (imatges de verdor):", e)
     linies = ["🏗️ CANVIS AL TERRITORI — " + nom_mes + " respecte a " + nom_abans,
               "Zona: 24 × 24 km al voltant de la Bisbal", ""]
     if not taques:
@@ -761,6 +841,9 @@ def informe_canvis(any_, mes):
             try:
                 fitxers["a%d" % k] = ("a%d.png" % k, demanar_rang(c, 100, da, fa, EVAL_RGB, "image/png"))
                 fitxers["b%d" % k] = ("b%d.png" % k, demanar_rang(c, 100, db, fb, EVAL_RGB, "image/png"))
+                imatges_tauler["zona%d-abans.png" % k] = fitxers["a%d" % k][1]
+                imatges_tauler["zona%d-ara.png" % k] = fitxers["b%d" % k][1]
+                t["imatges"] = ["zona%d-abans.png" % k, "zona%d-ara.png" % k]
                 media.append({"type": "photo", "media": "attach://a%d" % k, "caption": "Zona %d · %s" % (k, nom_abans)})
                 media.append({"type": "photo", "media": "attach://b%d" % k, "caption": "Zona %d · %s" % (k, nom_mes)})
             except Exception as e:
@@ -768,6 +851,20 @@ def informe_canvis(any_, mes):
         if media:
             tg("sendMediaGroup", {"chat_id": TG_CHAT, "media": json.dumps(media)}, fitxers)
     tg("sendMessage", {"chat_id": TG_CHAT, "text": "\n".join(linies), "disable_web_page_preview": "true"})
+    try:
+        vv = valid
+        desa_tauler("canvis", {
+            "mes": nom_mes, "abans": nom_abans, "any": any_, "numMes": mes,
+            "ndvi": round(float(np.nanmean(ndvi[vv])), 3) if vv.any() else None,
+            "ndviAbans": round(float(np.nanmean(ndvi0[vv])), 3) if vv.any() else None,
+            "mesSec": round(float((vv & ((ndvi - ndvi0) <= -0.1)).sum() / max(1, vv.sum()) * 100), 1),
+            "mesVerd": round(float((vv & ((ndvi - ndvi0) >= 0.1)).sum() / max(1, vv.sum()) * 100), 1),
+            "minHa": CANVI_MIN_HA, "caixa": caixa_latlon(caixa),
+            "imatges": {"ara": "verdor-ara.jpg", "abans": "verdor-abans.jpg", "diferencia": "verdor-diferencia.jpg"},
+            "taques": [{"ha": round(t["ha"], 1), "lat": round(t["lat"], 5), "lon": round(t["lon"], 5),
+                        "tipus": t["tipus"], "imatges": t.get("imatges", [])} for t in taques]}, imatges_tauler)
+    except Exception as e:
+        log("Tauler (canvis):", e)
 
 
 # -----------------------------------------------------------------------------
@@ -819,6 +916,9 @@ def revisar_pendents(nous=None):
 
 if __name__ == "__main__":
     ordre = sys.argv[1] if len(sys.argv) > 1 else "pendents"
+    if ordre == "tauler":       # 07.11.2026: refà el bloc del tauler sense enviar res al bot
+        SENSE_TG = True
+        ordre = "mensual"
     if ordre in ("mensual", "vegetacio", "canvis"):
         d = (os.environ.get("DATA") or "").strip()
         any_, mes = (int(d[:4]), int(d[5:7])) if len(d) >= 7 else mes_anterior()
