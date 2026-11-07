@@ -4,25 +4,25 @@
   "any": 2026,
   "numMes": 10,
   "referencia": "2019-2025",
-  "ndvi": 0.603,
-  "ndviRef": 0.585,
-  "variacio": 3.1,
-  "bosc": -2.9,
-  "mesSec": 10.4,
-  "mesVerd": 17.7,
+  "ndvi": 0.548,
+  "ndviRef": 0.543,
+  "variacio": 0.8,
+  "bosc": -2.4,
+  "mesSec": 14.4,
+  "mesVerd": 18.5,
   "senseImatge": 0.0,
   "caixa": [
    [
-    41.85158,
-    2.89397
+    41.81554,
+    2.86996
    ],
    [
-    42.06764,
-    3.18372
+    42.06761,
+    3.2079
    ]
   ],
   "imatge": "anomalia.jpg",
-  "generat": "2026-11-07T06:15:25+00:00"
+  "generat": "2026-11-07T07:14:34+00:00"
  },
  "canvis": {
   "mes": "octubre de 2026",
