@@ -758,6 +758,7 @@ def informe_vegetacio(any_, mes):
         except Exception as e:
             log("  ", a, e)
     if not historic or np.all(np.isnan(ndvi)):
+        log("  Sense prou dades: anys de referència", len(historic), "· mes sense cap píxel", bool(np.all(np.isnan(ndvi))))
         tg("sendMessage", {"chat_id": TG_CHAT, "text": "🌿 Estat de la vegetació — " + nom_mes +
                            "\nNo hi ha prou imatges sense núvols per fer l'informe d'aquest mes."})
         return
