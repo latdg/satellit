@@ -5,11 +5,11 @@
   "numMes": 10,
   "referencia": "2019-2025",
   "ndvi": 0.603,
-  "ndviRef": 0.59,
-  "variacio": 2.3,
-  "bosc": -3.5,
-  "mesSec": 11.7,
-  "mesVerd": 17.4,
+  "ndviRef": 0.585,
+  "variacio": 3.1,
+  "bosc": -2.9,
+  "mesSec": 10.4,
+  "mesVerd": 17.7,
   "senseImatge": 0.0,
   "caixa": [
    [
@@ -22,6 +22,100 @@
    ]
   ],
   "imatge": "anomalia.jpg",
-  "generat": "2026-11-07T06:08:49+00:00"
+  "generat": "2026-11-07T06:10:58+00:00"
+ },
+ "canvis": {
+  "mes": "octubre de 2026",
+  "abans": "octubre de 2025",
+  "any": 2026,
+  "numMes": 10,
+  "ndvi": 0.603,
+  "ndviAbans": 0.61,
+  "mesSec": 13.3,
+  "mesVerd": 14.6,
+  "minHa": 0.5,
+  "caixa": [
+   [
+    41.85158,
+    2.89397
+   ],
+   [
+    42.06764,
+    3.18372
+   ]
+  ],
+  "imatges": {
+   "ara": "verdor-ara.jpg",
+   "abans": "verdor-abans.jpg",
+   "diferencia": "verdor-diferencia.jpg"
+  },
+  "taques": [
+   {
+    "ha": 1753.9,
+    "lat": 41.89106,
+    "lon": 3.02704,
+    "tipus": "sòl nu o construcció",
+    "imatges": [
+     "zona1-abans.png",
+     "zona1-ara.png"
+    ]
+   },
+   {
+    "ha": 49.4,
+    "lat": 41.86168,
+    "lon": 3.0555,
+    "tipus": "sòl nu o construcció",
+    "imatges": [
+     "zona2-abans.png",
+     "zona2-ara.png"
+    ]
+   },
+   {
+    "ha": 21.0,
+    "lat": 41.8967,
+    "lon": 2.99981,
+    "tipus": "pèrdua de vegetació",
+    "imatges": [
+     "zona3-abans.png",
+     "zona3-ara.png"
+    ]
+   },
+   {
+    "ha": 14.1,
+    "lat": 42.03693,
+    "lon": 3.05415,
+    "tipus": "sòl nu o construcció",
+    "imatges": []
+   },
+   {
+    "ha": 7.6,
+    "lat": 41.98229,
+    "lon": 3.13279,
+    "tipus": "sòl nu o construcció",
+    "imatges": []
+   },
+   {
+    "ha": 5.7,
+    "lat": 42.05931,
+    "lon": 3.08763,
+    "tipus": "pèrdua de vegetació",
+    "imatges": []
+   },
+   {
+    "ha": 5.6,
+    "lat": 42.0268,
+    "lon": 3.04506,
+    "tipus": "pèrdua de vegetació",
+    "imatges": []
+   },
+   {
+    "ha": 5.4,
+    "lat": 41.98235,
+    "lon": 2.9796,
+    "tipus": "sòl nu o construcció",
+    "imatges": []
+   }
+  ],
+  "generat": "2026-11-07T06:11:45+00:00"
  }
 }
