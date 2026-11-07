@@ -565,7 +565,11 @@ def processar_inundacio(inc):
 # -----------------------------------------------------------------------------
 # INFORMES MENSUALS (SENTINEL-2): VEGETACIÓ I CANVIS AL TERRITORI
 # -----------------------------------------------------------------------------
-MENSUAL_RADI_KM = 12            # 24 x 24 km: els quatre municipis i bona part de les Gavarres
+MENSUAL_RADI_KM = 14            # 28 x 28 km: els municipis, les Gavarres i fins a Calonge i Platja d'Aro
+# 07.11.2026: el centre baixa 2 km cap al sud de la Bisbal perquè la zona agafi sencers
+# Calonge i Sant Antoni i Castell-Platja d'Aro (abans, 24 x 24 km centrats a la Bisbal)
+MENSUAL_CENTRE = (41.9417, 3.0386)
+ZONA_MENSUAL_TXT = "%d × %d km al voltant de la Bisbal" % (2 * MENSUAL_RADI_KM, 2 * MENSUAL_RADI_KM)
 MENSUAL_RESOLUCIO = 20          # metres per píxel
 ANY_INICI_HISTORIC = 2019       # primer any de referència per a la vegetació
 CANVI_NDVI = 0.30               # caiguda de verdor que es compta com a canvi
@@ -611,7 +615,7 @@ def limits_mes(any_, mes):
 
 
 def zona_mensual():
-    x, y = a_utm(INUNDACIO_CENTRE[0], INUNDACIO_CENTRE[1])
+    x, y = a_utm(MENSUAL_CENTRE[0], MENSUAL_CENTRE[1])
     m = MENSUAL_RADI_KM * 1000
     return [x - m, y - m, x + m, y + m], int(round(2 * m / MENSUAL_RESOLUCIO))
 
@@ -767,7 +771,7 @@ def informe_vegetacio(any_, mes):
 
     tot_ara, tot_ref = mitjana(valid)
     linies = ["🌿 ESTAT DE LA VEGETACIÓ — " + nom_mes,
-              "Zona: 24 × 24 km al voltant de la Bisbal (els quatre municipis i bona part de les Gavarres)", "",
+              "Zona: " + ZONA_MENSUAL_TXT + " (els municipis, les Gavarres i la costa fins a Platja d'Aro)", "",
               "Índex de verdor (NDVI) mitjà: " + ("%.2f" % tot_ara).replace(".", ",") +
               " (" + num_pct((tot_ara - tot_ref) / tot_ref * 100) + " respecte a la mitjana de " + MESOS_CAT[mes] +
               " de " + str(ANY_INICI_HISTORIC) + "-" + str(any_ - 1) + ")"]
@@ -836,7 +840,7 @@ def informe_canvis(any_, mes):
     except Exception as e:
         log("Tauler (imatges de verdor):", e)
     linies = ["🏗️ CANVIS AL TERRITORI — " + nom_mes + " respecte a " + nom_abans,
-              "Zona: 24 × 24 km al voltant de la Bisbal", ""]
+              "Zona: " + ZONA_MENSUAL_TXT, ""]
     if not taques:
         linies.append("No s'hi aprecia cap canvi gran (de " + num(CANVI_MIN_HA) + " ha o més).")
     else:
