@@ -721,6 +721,17 @@ def desa_tauler(part, dades, imatges=None):
     except Exception:
         tot = {}
     for nom, contingut in (imatges or {}).items():
+        if nom.endswith(".jpg"):          # més lleugeres per al mòbil (1.000 px)
+            try:
+                from PIL import Image
+                im = Image.open(io.BytesIO(contingut))
+                if im.width > 1000:
+                    im = im.resize((1000, round(im.height * 1000 / im.width)))
+                b = io.BytesIO()
+                im.save(b, "JPEG", quality=78, optimize=True)
+                contingut = b.getvalue()
+            except Exception as e:
+                log("Tauler (reduir imatge):", e)
         with open(os.path.join(CARPETA_TAULER, nom), "wb") as f:
             f.write(contingut)
     dades["generat"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
