@@ -1,0 +1,27 @@
+{
+ "vegetacio": {
+  "mes": "octubre de 2026",
+  "any": 2026,
+  "numMes": 10,
+  "referencia": "2019-2025",
+  "ndvi": 0.603,
+  "ndviRef": 0.59,
+  "variacio": 2.3,
+  "bosc": -3.5,
+  "mesSec": 11.7,
+  "mesVerd": 17.4,
+  "senseImatge": 0.0,
+  "caixa": [
+   [
+    41.85158,
+    2.89397
+   ],
+   [
+    42.06764,
+    3.18372
+   ]
+  ],
+  "imatge": "anomalia.jpg",
+  "generat": "2026-11-07T06:08:49+00:00"
+ }
+}
